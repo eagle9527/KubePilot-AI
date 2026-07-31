@@ -1,2 +1,2 @@
 # KubePilot-AI
-KubePilot-AI 
+KubePilot AI

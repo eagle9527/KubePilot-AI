@@ -1,0 +1,172 @@
+# KubePilot AI Controller Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kubepilot-ai-controller
+  namespace: kubeai-system
+  labels:
+    app.kubernetes.io/name: kubepilot-ai-controller
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/version: v0.1.0
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kubepilot-ai-controller
+      app.kubernetes.io/component: controller
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kubepilot-ai-controller
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/version: v0.1.0
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: kubepilot-ai-controller
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        fsGroup: 65532
+      containers:
+      - name: controller
+        image: kubepilot-ai/kubeai-controller:local
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        ports:
+        - name: metrics
+          containerPort: 8080
+          protocol: TCP
+        - name: health
+          containerPort: 8081
+          protocol: TCP
+        env:
+        # 基础配置
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: LOG_LEVEL
+          value: "info"
+        
+        # LLM 配置
+        - name: LLM_DEFAULT_PROVIDER
+          value: "deepseek"
+        - name: LLM_TEMPERATURE
+          value: "0.3"
+        - name: LLM_MAX_TOKENS
+          value: "2000"
+        - name: LLM_TIMEOUT
+          value: "60"
+        
+        # DeepSeek 配置（从 Secret 获取）
+        - name: DEEPSEEK_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: kubepilot-ai-secrets
+              key: deepseek-api-key
+              optional: true
+        - name: DEEPSEEK_MODEL
+          value: "deepseek-chat"
+        
+        # OpenAI 配置（从 Secret 获取）
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: kubepilot-ai-secrets
+              key: openai-api-key
+              optional: true
+        - name: OPENAI_MODEL
+          value: "gpt-4o"
+        
+        # 通义千问配置（从 Secret 获取）
+        - name: QWEN_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: kubepilot-ai-secrets
+              key: qwen-api-key
+              optional: true
+        - name: QWEN_MODEL
+          value: "qwen-turbo"
+        
+        # 通知配置
+        - name: NOTIFICATION_ENABLED
+          value: "true"
+        - name: NOTIFICATION_MIN_LEVEL
+          value: "Warning"
+        - name: NOTIFICATION_COOLDOWN
+          value: "5m"
+        
+        # 企业微信配置（从 Secret 获取）
+        - name: WECHAT_ENABLED
+          value: "false"
+        - name: WECHAT_WEBHOOK_URL
+          valueFrom:
+            secretKeyRef:
+              name: kubepilot-ai-secrets
+              key: wechat-webhook-url
+              optional: true
+        
+        # 钉钉配置（从 Secret 获取）
+        - name: DINGTALK_ENABLED
+          value: "true"
+        - name: DINGTALK_WEBHOOK_URL
+          valueFrom:
+            secretKeyRef:
+              name: kubepilot-ai-secrets
+              key: dingtalk-webhook-url
+              optional: true
+        
+        # 自动修复配置
+        - name: AUTO_REMEDIATION_ENABLED
+          value: "false"
+        - name: AUTO_REMEDIATION_LEVEL
+          value: "1"
+        - name: AUTO_REMEDIATION_DRY_RUN
+          value: "true"
+        
+        # 巡检配置
+        - name: INSPECTION_ENABLED
+          value: "true"
+        - name: INSPECTION_SCHEDULE
+          value: "0 2 * * *"
+        - name: INSPECTION_NOTIFY_ON_SUCCESS
+          value: "true"
+        
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: health
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: health
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          limits:
+            cpu: 1000m
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      nodeSelector: {}
+      tolerations: []
+      affinity: {}

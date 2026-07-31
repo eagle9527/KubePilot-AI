@@ -1,0 +1,11 @@
+# KubePilot AI Controller Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kubeai-system
+  labels:
+    app.kubernetes.io/name: kubepilot-ai
+    app.kubernetes.io/component: system
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged

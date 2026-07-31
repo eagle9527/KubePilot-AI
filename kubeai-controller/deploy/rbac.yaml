@@ -1,0 +1,169 @@
+# KubePilot AI Controller RBAC 配置
+# 包含 ServiceAccount、ClusterRole 和 ClusterRoleBinding
+
+---
+# ServiceAccount
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kubepilot-ai-controller
+  namespace: kubeai-system
+  labels:
+    app.kubernetes.io/name: kubepilot-ai-controller
+    app.kubernetes.io/component: controller
+
+---
+# ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubepilot-ai-controller
+  labels:
+    app.kubernetes.io/name: kubepilot-ai-controller
+    app.kubernetes.io/component: controller
+rules:
+# AIIncident CRD 权限
+- apiGroups:
+  - kubeai.io
+  resources:
+  - aiincidents
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - kubeai.io
+  resources:
+  - aiincidents/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - kubeai.io
+  resources:
+  - aiincidents/finalizers
+  verbs:
+  - update
+
+# 核心 Kubernetes 资源权限
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  - pods/log
+  - services
+  - configmaps
+  - secrets
+  - events
+  - nodes
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods/status
+  - nodes/status
+  verbs:
+  - get
+
+# Workload 资源权限
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  - daemonsets
+  - replicasets
+  - statefulsets
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  - cronjobs
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - deployments/status
+  - daemonsets/status
+  - replicasets/status
+  - statefulsets/status
+  verbs:
+  - get
+
+# Ingress 和 Service 权限
+- apiGroups:
+  - networking.k8s.io
+  resources:
+  - ingresses
+  - networkpolicies
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - networking.k8s.io
+  resources:
+  - ingresses/status
+  verbs:
+  - get
+
+# metrics-server（可选）节点指标
+- apiGroups:
+  - metrics.k8s.io
+  resources:
+  - nodes
+  verbs:
+  - get
+  - list
+
+# 自动修复需要的 Patch 权限（可选，根据安全策略启用）
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - delete
+  - patch
+  - update
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  - statefulsets
+  - daemonsets
+  verbs:
+  - patch
+  - update
+  - scale
+
+---
+# ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kubepilot-ai-controller
+  labels:
+    app.kubernetes.io/name: kubepilot-ai-controller
+    app.kubernetes.io/component: controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kubepilot-ai-controller
+subjects:
+- kind: ServiceAccount
+  name: kubepilot-ai-controller
+  namespace: kubeai-system

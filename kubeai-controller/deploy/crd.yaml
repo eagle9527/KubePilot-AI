@@ -1,0 +1,253 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.14.0
+  name: aiincidents.kubeai.io
+spec:
+  group: kubeai.io
+  names:
+    categories:
+    - kubeai
+    - ai
+    kind: AIIncident
+    listKind: AIIncidentList
+    plural: aiincidents
+    singular: aiincident
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.level
+      name: Level
+      type: string
+    - jsonPath: .status.reason
+      name: Reason
+      priority: 1
+      type: string
+    - jsonPath: .status.confidence
+      name: Confidence
+      priority: 1
+      type: number
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1
+    schema:
+      openAPIV3Schema:
+        description: AIIncident 是 KubePilot AI 分析事件的主资源
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: AIIncidentSpec 定义了 AI 分析事件的期望状态
+            properties:
+              analyze:
+                description: Analyze 定义了 AI 分析的配置
+                properties:
+                  context:
+                    description: Context 是额外的上下文信息，如相关日志、指标等
+                    properties:
+                      events:
+                        description: Events 是相关的 Kubernetes 事件
+                        items:
+                          type: string
+                        type: array
+                      logs:
+                        description: Logs 是相关的日志内容
+                        items:
+                          type: string
+                        type: array
+                      metrics:
+                        additionalProperties:
+                          type: string
+                        description: Metrics 是相关的指标数据
+                        type: object
+                      relatedResources:
+                        description: RelatedResources 是相关资源的信息
+                        items:
+                          description: ResourceInfo 定义了 Kubernetes 资源信息
+                          properties:
+                            apiVersion:
+                              description: APIVersion 是资源的 API 版本
+                              type: string
+                            kind:
+                              description: Kind 是资源类型，如 Pod、Node、Deployment
+                                等
+                              enum:
+                              - Pod
+                              - Node
+                              - Deployment
+                              - StatefulSet
+                              - DaemonSet
+                              - Ingress
+                              - Service
+                              type: string
+                            name:
+                              description: Name 是资源名称
+                              type: string
+                            namespace:
+                              description: Namespace 是资源所在的命名空间（对集群级资源可为空）
+                              type: string
+                          type: object
+                        type: array
+                    type: object
+                  maxTokens:
+                    description: MaxTokens 是最大输出 token 数
+                    type: integer
+                  model:
+                    description: Model 是使用的模型名称
+                    type: string
+                  provider:
+                    description: Provider 是 LLM 提供商
+                    enum:
+                    - openai
+                    - deepseek
+                    - qwen
+                    - claude
+                    - ollama
+                    type: string
+                  temperature:
+                    description: Temperature 控制输出的随机性
+                    type: number
+                type: object
+              resource:
+                description: Resource 定义了发生异常的资源信息
+                properties:
+                  apiVersion:
+                    description: APIVersion 是资源的 API 版本
+                    type: string
+                  kind:
+                    description: Kind 是资源类型，如 Pod、Node、Deployment 等
+                    enum:
+                    - Pod
+                    - Node
+                    - Deployment
+                    - StatefulSet
+                    - DaemonSet
+                    - Ingress
+                    - Service
+                    type: string
+                  name:
+                    description: Name 是资源名称
+                    type: string
+                  namespace:
+                    description: Namespace 是资源所在的命名空间（对集群级资源可为空）
+                    type: string
+                type: object
+              trigger:
+                description: Trigger 定义了触发分析的条件
+                properties:
+                  count:
+                    description: Count 是触发次数
+                    type: integer
+                  message:
+                    description: Message 是触发时的原始消息
+                    type: string
+                  severity:
+                    description: Severity 是严重程度
+                    enum:
+                    - Critical
+                    - High
+                    - Medium
+                    - Low
+                    - Info
+                    type: string
+                  type:
+                    description: Type 是触发类型
+                    enum:
+                    - CrashLoopBackOff
+                    - ImagePullBackOff
+                    - OOMKilled
+                    - NodeNotReady
+                    - DiskPressure
+                    - MemoryPressure
+                    - HighCPU
+                    - HighMemory
+                    - PodPending
+                    - FailedScheduling
+                    - IngressError
+                    - Custom
+                    type: string
+                type: object
+            type: object
+          status:
+            description: AIIncidentStatus 定义了 AI 分析事件的观测状态
+            properties:
+              analysisResult:
+                description: AnalysisResult 是完整的分析结果
+                type: string
+              completionTime:
+                description: CompletionTime 完成时间
+                format: date-time
+                type: string
+              confidence:
+                description: Confidence 是置信度 (0-1)
+                type: number
+              lastError:
+                description: LastError 最后一次错误
+                type: string
+              level:
+                description: 'Level 是诊断的级别: Critical, Warning, Info, Success'
+                enum:
+                - Critical
+                - Warning
+                - Info
+                - Success
+                type: string
+              notificationResult:
+                description: NotificationResult 通知结果
+                type: string
+              notified:
+                description: Notified 是否已通知
+                type: boolean
+              phase:
+                description: 'Phase 是当前阶段: Pending, Analyzing, Analyzed, Notifying,
+                  Resolved, Failed'
+                enum:
+                - Pending
+                - Analyzing
+                - Analyzed
+                - Notifying
+                - Resolved
+                - Failed
+                type: string
+              reason:
+                description: Reason 是 AI 分析的原因
+                type: string
+              resolution:
+                description: Resolution 解决方案
+                type: string
+              resolved:
+                description: Resolved 是否已解决
+                type: boolean
+              retryCount:
+                description: RetryCount 重试次数
+                type: integer
+              startTime:
+                description: StartTime 开始时间
+                format: date-time
+                type: string
+              suggestion:
+                description: Suggestion 是 AI 给出的建议
+                items:
+                  type: string
+                type: array
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
