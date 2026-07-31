@@ -7,7 +7,7 @@
 *.dll
 *.so
 *.dylib
-
+kubeai-controller/deploy/secret.yaml
 # Test binary, built with `go test -c`
 *.test
 
