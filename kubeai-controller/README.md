@@ -47,3 +47,7 @@ kubectl apply -f deploy/example-aiincident.yaml
 kubectl get aiincident -n default
 kubectl describe aiincident example-pod-crash -n default
 ```
+
+图片：
+![AIIncident 通知](./images/events.png)
+![AIIncident 通知](./images/inspection.png)
