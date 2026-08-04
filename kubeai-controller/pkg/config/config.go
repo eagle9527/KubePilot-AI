@@ -209,6 +209,9 @@ type InspectionConfig struct {
 
 // GeneralConfig 是 Controller 通用配置
 type GeneralConfig struct {
+	// ClusterName 是集群名称（用于通知中标识来源集群）
+	ClusterName string `json:"clusterName"`
+
 	// Namespace 是 Controller 部署的命名空间
 	Namespace string `json:"namespace"`
 
@@ -255,6 +258,7 @@ func LoadConfig() (*ControllerConfig, error) {
 			ReportRetention: 30,
 		},
 		Controller: GeneralConfig{
+			ClusterName:  getEnv("CLUSTER_NAME", ""),
 			Namespace:    getEnv("POD_NAMESPACE", "kubeai-system"),
 			Workers:      getEnvInt("WORKERS", 5),
 			ResyncPeriod: getEnvDuration("RESYNC_PERIOD", 10*time.Minute),

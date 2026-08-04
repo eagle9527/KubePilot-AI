@@ -61,59 +61,51 @@ func (w *WeChatNotifier) Send(ctx context.Context, msg *Message) error {
 	return w.sendMessage(ctx, wechatMsg)
 }
 
-// buildMarkdownContent 构建 Markdown 格式的消息内容
+// buildMarkdownContent 构建 Markdown 格式的消息内容。
+// 企业微信仅支持标题、加粗、链接、行内代码、引用和 <font color>（info/comment/warning），
+// 不支持表格与列表语法，这里统一走 adaptForWeChat 适配。
 func (w *WeChatNotifier) buildMarkdownContent(msg *Message) string {
 	if strings.TrimSpace(msg.Content) != "" {
-		return msg.Content
+		content := strings.TrimSpace(msg.Content)
+		if strings.TrimSpace(msg.ResourceInfo.Cluster) != "" {
+			content = fmt.Sprintf("> 集群：%s\n\n%s", strings.TrimSpace(msg.ResourceInfo.Cluster), content)
+		}
+		return adaptForWeChat(content)
 	}
 
-	var builder strings.Builder
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("## %s %s\n", LevelEmoji(msg.Level), msg.Title))
+	b.WriteString(fmt.Sprintf("> 级别 <font color=\"%s\">%s</font>\n\n", levelColor(msg.Level), LevelText(msg.Level)))
+	if strings.TrimSpace(msg.ResourceInfo.Cluster) != "" {
+		b.WriteString(fmt.Sprintf("> 集群 `%s`\n\n", strings.TrimSpace(msg.ResourceInfo.Cluster)))
+	}
 
-	levelEmoji := w.getLevelEmoji(msg.Level)
-	builder.WriteString(fmt.Sprintf("## %s %s\n\n", levelEmoji, msg.Title))
-
-	builder.WriteString("**资源信息：**\n")
-	builder.WriteString(fmt.Sprintf("> 类型：%s\n", msg.ResourceInfo.Kind))
-	builder.WriteString(fmt.Sprintf("> 名称：%s\n", msg.ResourceInfo.Name))
+	b.WriteString("**资源**\n")
+	b.WriteString(fmt.Sprintf("> %s `%s`", msg.ResourceInfo.Kind, msg.ResourceInfo.Name))
 	if msg.ResourceInfo.Namespace != "" {
-		builder.WriteString(fmt.Sprintf("> 命名空间：%s\n", msg.ResourceInfo.Namespace))
+		b.WriteString(fmt.Sprintf(" · 命名空间 `%s`", msg.ResourceInfo.Namespace))
 	}
-	builder.WriteString("\n")
+	b.WriteString("\n\n")
 
-	if msg.AnalysisResult != "" {
-		builder.WriteString("**AI 分析：**\n")
-		builder.WriteString(fmt.Sprintf("> %s\n\n", msg.AnalysisResult))
+	if strings.TrimSpace(msg.AnalysisResult) != "" {
+		b.WriteString("**AI 分析**\n")
+		for _, line := range strings.Split(strings.TrimSpace(msg.AnalysisResult), "\n") {
+			b.WriteString("> " + strings.TrimSpace(line) + "\n")
+		}
+		b.WriteString("\n")
 	}
 
 	if len(msg.Suggestions) > 0 {
-		builder.WriteString("**修复建议：**\n")
+		b.WriteString("**处理建议**\n")
 		for i, suggestion := range msg.Suggestions {
-			builder.WriteString(fmt.Sprintf("%d. %s\n", i+1, suggestion))
+			b.WriteString(fmt.Sprintf("%d. %s\n", i+1, suggestion))
 		}
-		builder.WriteString("\n")
+		b.WriteString("\n")
 	}
 
-	builder.WriteString(fmt.Sprintf("<font color=\"gray\">%s</font>", msg.Timestamp.Format("2006-01-02 15:04:05")))
+	b.WriteString(fmt.Sprintf("<font color=\"comment\">%s · KubePilot AI</font>", msg.Timestamp.Format("2006-01-02 15:04:05")))
 
-	return builder.String()
-}
-
-// getLevelEmoji 获取级别的 Emoji
-func (w *WeChatNotifier) getLevelEmoji(level MessageLevel) string {
-	switch level {
-	case Critical:
-		return "🔴"
-	case High:
-		return "🟠"
-	case Warning:
-		return "🟡"
-	case Info:
-		return "🔵"
-	case Success:
-		return "🟢"
-	default:
-		return "⚪"
-	}
+	return adaptForWeChat(b.String())
 }
 
 // sendMessage 发送消息到企业微信
@@ -156,7 +148,7 @@ func (w *WeChatNotifier) sendMessage(ctx context.Context, msg WeChatMessage) err
 // HealthCheck 检查企业微信配置是否正确
 func (w *WeChatNotifier) HealthCheck(ctx context.Context) error {
 	testMsg := WeChatMessage{
-		MsgType: "text",
+		MsgType: "markdown",
 		Markdown: &WeChatMarkdown{
 			Content: "KubePilot AI 健康检查测试",
 		},

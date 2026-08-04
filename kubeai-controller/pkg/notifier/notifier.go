@@ -273,19 +273,19 @@ func (m *Manager) flushDigest(ctx context.Context) error {
 	}
 
 	var b strings.Builder
-	b.WriteString("告警收敛摘要（自动汇总）\n\n")
-	b.WriteString(fmt.Sprintf("时间：%s\n\n", now.Format("2006-01-02 15:04:05")))
+	b.WriteString("## 🔕 KubePilot AI 告警收敛摘要\n\n")
+	b.WriteString(fmt.Sprintf("> 时间：%s · 共 %d 类告警被收敛\n\n", now.Format("2006-01-02 15:04:05"), len(items)))
 	for i, it := range items {
-		b.WriteString(fmt.Sprintf("%d) %s\n", i+1, it.Title))
-		b.WriteString(fmt.Sprintf("   资源：%s/%s/%s\n", it.Resource.Namespace, it.Resource.Kind, it.Resource.Name))
-		b.WriteString(fmt.Sprintf("   收敛：%d 次（%s ~ %s）\n\n", it.Count, it.FirstAt.Format("15:04:05"), it.LastAt.Format("15:04:05")))
+		b.WriteString(fmt.Sprintf("**%d. %s %s**\n", i+1, LevelEmoji(it.Level), it.Title))
+		b.WriteString(fmt.Sprintf("- 资源：%s/%s/%s\n", it.Resource.Namespace, it.Resource.Kind, it.Resource.Name))
+		b.WriteString(fmt.Sprintf("- 收敛：%d 次（%s ~ %s）\n\n", it.Count, it.FirstAt.Format("15:04:05"), it.LastAt.Format("15:04:05")))
 	}
 
 	digest := &Message{
-		Title:          "KubePilot AI 告警收敛摘要",
-		Level:          level,
-		AnalysisResult: b.String(),
-		Timestamp:      now,
+		Title:     "KubePilot AI 告警收敛摘要",
+		Level:     level,
+		Content:   b.String(),
+		Timestamp: now,
 		ResourceInfo: ResourceInfo{
 			Kind:      "AIIncident",
 			Name:      "digest",

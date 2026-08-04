@@ -199,6 +199,7 @@ func (r *AIIncidentReconciler) handleNotifying(ctx context.Context, incident *ku
 			Kind:      incident.Spec.Resource.Kind,
 			Name:      incident.Spec.Resource.Name,
 			Namespace: incident.Spec.Resource.Namespace,
+			Cluster:   r.Config.Controller.ClusterName,
 		},
 	}
 

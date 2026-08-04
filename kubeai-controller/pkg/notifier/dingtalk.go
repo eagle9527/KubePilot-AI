@@ -72,6 +72,13 @@ type DingTalkResponse struct {
 
 // NewDingTalkNotifier 创建钉钉通知器
 func NewDingTalkNotifier(webhookURL, accessToken, secret string, atMobiles []string, isAtAll bool) *DingTalkNotifier {
+	webhookURL = strings.TrimSpace(webhookURL)
+	webhookURL = strings.Trim(webhookURL, "`\"")
+	accessToken = strings.TrimSpace(accessToken)
+	accessToken = strings.Trim(accessToken, "`\"")
+	secret = strings.TrimSpace(secret)
+	secret = strings.Trim(secret, "`\"")
+
 	// 如果没有提供 webhookURL，则使用 accessToken 构造
 	if webhookURL == "" && accessToken != "" {
 		webhookURL = fmt.Sprintf("%s?access_token=%s", dingTalkAPIURL, accessToken)
@@ -114,67 +121,49 @@ func (d *DingTalkNotifier) Send(ctx context.Context, msg *Message) error {
 	return d.sendMessage(ctx, dingMsg)
 }
 
-// buildMarkdownContent 构建 Markdown 格式的消息内容
+// buildMarkdownContent 构建 Markdown 格式的消息内容。
+// 钉钉支持标题、加粗、链接、图片、列表和引用，但不支持表格和 <font> 标签，
+// 这里统一走 adaptForDingTalk 适配。
 func (d *DingTalkNotifier) buildMarkdownContent(msg *Message) string {
 	if strings.TrimSpace(msg.Content) != "" {
-		return msg.Content
-	}
-
-	var builder strings.Builder
-
-	// 标题和级别
-	levelEmoji := d.getLevelEmoji(msg.Level)
-	builder.WriteString(fmt.Sprintf("## %s %s\n\n", levelEmoji, msg.Title))
-
-	// 资源信息
-	builder.WriteString("**资源信息：**\n")
-	builder.WriteString(fmt.Sprintf("> 类型：%s\n", msg.ResourceInfo.Kind))
-	builder.WriteString(fmt.Sprintf("> 名称：%s\n", msg.ResourceInfo.Name))
-	if msg.ResourceInfo.Namespace != "" {
-		builder.WriteString(fmt.Sprintf("> 命名空间：%s\n", msg.ResourceInfo.Namespace))
-	}
-	if msg.ResourceInfo.Cluster != "" {
-		builder.WriteString(fmt.Sprintf("> 集群：%s\n", msg.ResourceInfo.Cluster))
-	}
-	builder.WriteString("\n")
-
-	// 分析结果
-	if msg.AnalysisResult != "" {
-		builder.WriteString("**AI 分析：**\n")
-		builder.WriteString(fmt.Sprintf("> %s\n\n", msg.AnalysisResult))
-	}
-
-	// 建议
-	if len(msg.Suggestions) > 0 {
-		builder.WriteString("**修复建议：**\n")
-		for i, suggestion := range msg.Suggestions {
-			builder.WriteString(fmt.Sprintf("%d. %s\n", i+1, suggestion))
+		content := strings.TrimSpace(msg.Content)
+		if strings.TrimSpace(msg.ResourceInfo.Cluster) != "" {
+			content = fmt.Sprintf("> 集群：%s\n\n%s", strings.TrimSpace(msg.ResourceInfo.Cluster), content)
 		}
-		builder.WriteString("\n")
+		return adaptForDingTalk(content)
 	}
 
-	// 时间戳
-	builder.WriteString(fmt.Sprintf("<font color=\"gray\">%s</font>", msg.Timestamp.Format("2006-01-02 15:04:05")))
-
-	return builder.String()
-}
-
-// getLevelEmoji 获取级别的 Emoji
-func (d *DingTalkNotifier) getLevelEmoji(level MessageLevel) string {
-	switch level {
-	case Critical:
-		return "🔴"
-	case High:
-		return "🟠"
-	case Warning:
-		return "🟡"
-	case Info:
-		return "🔵"
-	case Success:
-		return "🟢"
-	default:
-		return "⚪"
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("## %s %s\n\n", LevelEmoji(msg.Level), msg.Title))
+	b.WriteString(fmt.Sprintf("**级别**：%s\n\n", LevelText(msg.Level)))
+	if strings.TrimSpace(msg.ResourceInfo.Cluster) != "" {
+		b.WriteString(fmt.Sprintf("> 集群：%s\n\n", strings.TrimSpace(msg.ResourceInfo.Cluster)))
 	}
+
+	b.WriteString("**资源信息**\n\n")
+	b.WriteString(fmt.Sprintf("- 类型：%s\n", msg.ResourceInfo.Kind))
+	b.WriteString(fmt.Sprintf("- 名称：%s\n", msg.ResourceInfo.Name))
+	if msg.ResourceInfo.Namespace != "" {
+		b.WriteString(fmt.Sprintf("- 命名空间：%s\n", msg.ResourceInfo.Namespace))
+	}
+	b.WriteString("\n")
+
+	if strings.TrimSpace(msg.AnalysisResult) != "" {
+		b.WriteString("**AI 分析**\n\n")
+		b.WriteString("> " + strings.ReplaceAll(strings.TrimSpace(msg.AnalysisResult), "\n", "\n> ") + "\n\n")
+	}
+
+	if len(msg.Suggestions) > 0 {
+		b.WriteString("**处理建议**\n\n")
+		for i, suggestion := range msg.Suggestions {
+			b.WriteString(fmt.Sprintf("%d. %s\n", i+1, suggestion))
+		}
+		b.WriteString("\n")
+	}
+
+	b.WriteString(fmt.Sprintf("%s · KubePilot AI", msg.Timestamp.Format("2006-01-02 15:04:05")))
+
+	return adaptForDingTalk(b.String())
 }
 
 // sendMessage 发送消息到钉钉

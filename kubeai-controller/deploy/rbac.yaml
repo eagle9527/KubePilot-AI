@@ -56,6 +56,8 @@ rules:
   resources:
   - pods
   - pods/log
+  - persistentvolumeclaims
+  - resourcequotas
   - services
   - configmaps
   - secrets
