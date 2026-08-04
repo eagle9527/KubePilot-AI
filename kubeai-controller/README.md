@@ -50,4 +50,4 @@ kubectl describe aiincident example-pod-crash -n default
 
 ![AIIncident 时间通知](./images/events.png)
 
-![AIIncident 巡检通知](./images/inspection.png)
+![AIIncident 巡检通知](./images/Inspection.png)
