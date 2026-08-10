@@ -57,6 +57,7 @@ rules:
   - pods
   - pods/log
   - persistentvolumeclaims
+  - persistentvolumes
   - resourcequotas
   - services
   - configmaps
@@ -131,6 +132,16 @@ rules:
   verbs:
   - get
   - list
+
+# StorageClass（可选）存储类信息
+- apiGroups:
+  - storage.k8s.io
+  resources:
+  - storageclasses
+  verbs:
+  - get
+  - list
+  - watch
 
 # 自动修复需要的 Patch 权限（可选，根据安全策略启用）
 - apiGroups:

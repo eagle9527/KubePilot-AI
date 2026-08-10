@@ -144,7 +144,7 @@ spec:
         - name: INSPECTION_ENABLED
           value: "true"
         - name: INSPECTION_SCHEDULE
-          value: "56 13 * * *"
+          value: "* * * * *"
         - name: INSPECTION_NOTIFY_ON_SUCCESS
           value: "true"
         

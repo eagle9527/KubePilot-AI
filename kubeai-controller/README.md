@@ -35,6 +35,16 @@ kubectl get pods -n kubeai-system
 kubectl logs -n kubeai-system -l app.kubernetes.io/name=kubepilot-ai-controller
 ```
 
+## 每日巡检（计划任务）
+
+巡检由 Controller 进程内定时触发（非 Kubernetes CronJob），默认每天 02:00（可通过环境变量修改），报告内容包含：
+- 健康评分（节点状态/资源、Pod、工作负载、存储）
+- 重点关注与建议操作（资源配额、高内存节点、镜像拉取失败等）
+- 工作负载明细（Deployment/StatefulSet/DaemonSet）
+- 计划任务与批处理明细
+  - CronJob：Suspend、Active、lastScheduleTime 异常、未观察到执行、疑似漏跑（仅对常见 5 段表达式进行推断）
+  - Job：失败 Job Top 列表（包含失败条件原因、运行时长、owner CronJob 关联）
+
 ## 测试
 
 创建测试 AIIncident：

@@ -12,7 +12,7 @@ COPY --from=basefiles /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
 COPY --from=basefiles /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 
 
-COPY bin/manager /manager
+COPY bin/kubeai-controller /manager
 
 USER 65532:65532
 
