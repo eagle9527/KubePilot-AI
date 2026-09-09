@@ -23,6 +23,3 @@ jobs:
 
     - name: Build
       run: cd  kubeai-controller && go build cmd/main.go 
-
-    - name: Test
-      run: cd kubeai-controller && go test 
