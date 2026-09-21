@@ -64,6 +64,7 @@ rules:
   - secrets
   - events
   - nodes
+  - namespaces
   verbs:
   - get
   - list
@@ -132,6 +133,36 @@ rules:
   verbs:
   - get
   - list
+
+# EndpointSlice（巡检 Service Endpoints 健康）
+- apiGroups:
+  - discovery.k8s.io
+  resources:
+  - endpointslices
+  verbs:
+  - get
+  - list
+  - watch
+
+# HPA（巡检弹性伸缩风险）
+- apiGroups:
+  - autoscaling
+  resources:
+  - horizontalpodautoscalers
+  verbs:
+  - get
+  - list
+  - watch
+
+# PDB（巡检变更可用性风险）
+- apiGroups:
+  - policy
+  resources:
+  - poddisruptionbudgets
+  verbs:
+  - get
+  - list
+  - watch
 
 # StorageClass（可选）存储类信息
 - apiGroups:

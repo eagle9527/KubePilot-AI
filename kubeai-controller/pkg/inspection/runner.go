@@ -96,10 +96,11 @@ func (r *Runner) runOnce(ctx context.Context, loc *time.Location) error {
 	events := r.collectWarningEvents(ctx, now.Add(-24*time.Hour), now)
 	network := r.collectNetwork(ctx, now)
 	nsRes := r.collectNamespaceResources(ctx)
+	extras := r.collectExtras(ctx, now)
 
 	podAnalyses := r.analyzePods(ctx, clientset, abnormalPods)
 
-	rawReport := buildReportMarkdown(now, components, nodeSummary, workloads, pods, abnormalSummary, abnormalPods, quotaRisks, storage, events, network, nsRes, podAnalyses)
+	rawReport := buildReportMarkdown(now, components, nodeSummary, workloads, pods, abnormalSummary, abnormalPods, quotaRisks, storage, events, network, nsRes, podAnalyses, extras)
 	report := r.renderReport(ctx, rawReport)
 
 	if level == notifier.Success && abnormalSummary.AbnormalCount > 0 {
@@ -110,6 +111,9 @@ func (r *Runner) runOnce(ctx context.Context, loc *time.Location) error {
 	}
 	if nodeSummary.NotReadyCount > 0 {
 		level = notifier.Critical
+	}
+	if level == notifier.Success && (extras.Certs.Expired > 0 || extras.Endpoints.Empty > 0) {
+		level = notifier.Warning
 	}
 
 	msg := &notifier.Message{
@@ -135,7 +139,7 @@ func (r *Runner) runOnce(ctx context.Context, loc *time.Location) error {
 		return err
 	}
 
-	l.Info("inspection report sent", "level", msg.Level, "nodes", len(nodes), "pods", pods.Total, "abnormalPods", abnormalSummary.AbnormalCount)
+	l.Info("inspection report sent", "level", msg.Level, "nodes", len(nodes), "pods", pods.Total, "abnormalPods", abnormalSummary.AbnormalCount, "privileged", extras.Security.Privileged, "certExpired", extras.Certs.Expired, "emptyEndpoints", extras.Endpoints.Empty)
 	return nil
 }
 
@@ -398,6 +402,8 @@ type nodeSummary struct {
 	TotalMem      resource.Quantity
 	RequestedCPU  resource.Quantity
 	RequestedMem  resource.Quantity
+	Unschedulable []string
+	PodOverload   []nodePodLoad
 }
 
 type nodeUtil struct {
@@ -407,6 +413,13 @@ type nodeUtil struct {
 	Ready      bool
 	Pressures  []string
 	Source     string
+}
+
+type nodePodLoad struct {
+	Name     string
+	Pods     int
+	Capacity int64
+	Percent  float64
 }
 
 type podAnalysis struct {
@@ -695,7 +708,7 @@ func (r *Runner) collectComponents(ctx context.Context) componentsSummary {
 	var pods corev1.PodList
 	_ = r.Client.List(ctx, &pods, client.InNamespace("kube-system"))
 
-	targets := []string{"kube-apiserver", "kube-controller-manager", "kube-scheduler", "etcd", "coredns", "metrics-server"}
+	targets := []string{"kube-apiserver", "kube-controller-manager", "kube-scheduler", "etcd", "coredns", "kube-proxy", "metrics-server"}
 	m := make(map[string]*componentItem)
 	for _, t := range targets {
 		m[t] = &componentItem{Name: t}
@@ -767,6 +780,21 @@ func (r *Runner) collectNodes(ctx context.Context) ([]corev1.Node, nodeSummary, 
 		if len(pressures) > 0 {
 			sum.PressureCount++
 			level = notifier.Warning
+		}
+		if n.Spec.Unschedulable {
+			sum.Unschedulable = append(sum.Unschedulable, n.Name)
+		}
+		if capPods, ok := n.Status.Allocatable[corev1.ResourcePods]; ok && capPods.Value() > 0 {
+			capV := capPods.Value()
+			cnt := int64(len(podsByNode[n.Name]))
+			if float64(cnt) >= float64(capV)*0.9 {
+				sum.PodOverload = append(sum.PodOverload, nodePodLoad{
+					Name:     n.Name,
+					Pods:     int(cnt),
+					Capacity: capV,
+					Percent:  float64(cnt) / float64(capV) * 100,
+				})
+			}
 		}
 
 		cpuCap := n.Status.Allocatable[corev1.ResourceCPU]
@@ -1708,21 +1736,23 @@ func scoreNetwork(n networkSummary) float64 {
 	return clamp100(100 - penalty)
 }
 
-func scoreOverall(nodeStatus, nodeResource, podStatus, deploy, sts, storage, events, network float64) float64 {
+func scoreOverall(nodeStatus, nodeResource, podStatus, deploy, sts, storage, events, network, security, certs float64) float64 {
 	w := 0.0
 	sum := 0.0
 	for _, it := range []struct {
 		V float64
 		W float64
 	}{
-		{nodeStatus, 0.18},
-		{nodeResource, 0.18},
-		{podStatus, 0.18},
-		{deploy, 0.18},
-		{sts, 0.09},
-		{storage, 0.09},
-		{events, 0.05},
-		{network, 0.05},
+		{nodeStatus, 0.16},
+		{nodeResource, 0.16},
+		{podStatus, 0.16},
+		{deploy, 0.16},
+		{sts, 0.08},
+		{storage, 0.08},
+		{events, 0.04},
+		{network, 0.04},
+		{security, 0.08},
+		{certs, 0.04},
 	} {
 		sum += it.V * it.W
 		w += it.W
@@ -1980,8 +2010,16 @@ func abnormalReason(p *corev1.Pod) string {
 				return cs.State.Waiting.Reason
 			}
 		}
+		for _, c := range p.Status.Conditions {
+			if c.Type == corev1.PodScheduled && c.Status == corev1.ConditionFalse && strings.TrimSpace(c.Reason) == "Unschedulable" {
+				return "Unschedulable"
+			}
+		}
 		if p.Status.Reason != "" {
 			return p.Status.Reason
+		}
+		if !p.CreationTimestamp.IsZero() && time.Since(p.CreationTimestamp.Time) > 15*time.Minute {
+			return "LongPending"
 		}
 		return "Pending"
 	}
@@ -2012,6 +2050,11 @@ func podStatusMessage(p *corev1.Pod) string {
 	if p.Status.Reason != "" {
 		return p.Status.Reason
 	}
+	for _, c := range p.Status.Conditions {
+		if c.Type == corev1.PodScheduled && c.Status == corev1.ConditionFalse && strings.TrimSpace(c.Message) != "" {
+			return c.Message
+		}
+	}
 	for _, cs := range p.Status.ContainerStatuses {
 		if cs.State.Waiting != nil && cs.State.Waiting.Message != "" {
 			return cs.State.Waiting.Message
@@ -2020,7 +2063,7 @@ func podStatusMessage(p *corev1.Pod) string {
 	return ""
 }
 
-func buildReportMarkdown(now time.Time, comps componentsSummary, nodes nodeSummary, ws workloadsSummary, pc podCounts, abnormal abnormalPodsSummary, abnormalPods []corev1.Pod, quotaRisks []quotaRisk, storage storageSummary, events warningEventSummary, network networkSummary, nsRes nsResourceSummary, analyses []podAnalysis) string {
+func buildReportMarkdown(now time.Time, comps componentsSummary, nodes nodeSummary, ws workloadsSummary, pc podCounts, abnormal abnormalPodsSummary, abnormalPods []corev1.Pod, quotaRisks []quotaRisk, storage storageSummary, events warningEventSummary, network networkSummary, nsRes nsResourceSummary, analyses []podAnalysis, extras inspectionExtras) string {
 	var b strings.Builder
 	tz := now.Location()
 
@@ -2043,7 +2086,9 @@ func buildReportMarkdown(now time.Time, comps componentsSummary, nodes nodeSumma
 	storageScore := scoreStorage(storage)
 	eventScore := scoreWarningEvents(events)
 	networkScore := scoreNetwork(network)
-	totalScore := scoreOverall(nodeStatusScore, nodeResourceScore, podStatusScore, deployScore, stsScore, storageScore, eventScore, networkScore)
+	securityScore := scoreSecurity(extras.Security, extras.Hygiene)
+	certScore := scoreCerts(extras.Certs)
+	totalScore := scoreOverall(nodeStatusScore, nodeResourceScore, podStatusScore, deployScore, stsScore, storageScore, eventScore, networkScore, securityScore, certScore)
 
 	b.WriteString("## 📊 健康评分\n")
 	b.WriteString(fmt.Sprintf("- 节点状态：%.1f%%\n", nodeStatusScore))
@@ -2053,7 +2098,9 @@ func buildReportMarkdown(now time.Time, comps componentsSummary, nodes nodeSumma
 	b.WriteString(fmt.Sprintf("- StatefulSets：%.1f%%\n", stsScore))
 	b.WriteString(fmt.Sprintf("- 存储：%.1f%%\n", storageScore))
 	b.WriteString(fmt.Sprintf("- 事件告警：%.1f%%\n", eventScore))
-	b.WriteString(fmt.Sprintf("- 网络入口：%.1f%%\n\n", networkScore))
+	b.WriteString(fmt.Sprintf("- 网络入口：%.1f%%\n", networkScore))
+	b.WriteString(fmt.Sprintf("- 安全配置：%.1f%%\n", securityScore))
+	b.WriteString(fmt.Sprintf("- 证书合规：%.1f%%\n\n", certScore))
 	b.WriteString(fmt.Sprintf("- 综合评分：%.1f / 100 %s\n\n", totalScore, scoreStars(totalScore)))
 
 	b.WriteString("## 📋 集群概况\n")
@@ -2082,9 +2129,12 @@ func buildReportMarkdown(now time.Time, comps componentsSummary, nodes nodeSumma
 	var netParts []string
 	netParts = append(netParts, fmt.Sprintf("Service %d（LB pending %d）", network.Services.Total, network.Services.LBPending))
 	netParts = append(netParts, fmt.Sprintf("Ingress %d（LB pending %d）", network.Ingress.Total, network.Ingress.PendingLB))
-	b.WriteString(fmt.Sprintf("- 网络：%s\n\n", strings.Join(netParts, " / ")))
+	b.WriteString(fmt.Sprintf("- 网络：%s\n", strings.Join(netParts, " / ")))
+	b.WriteString(fmt.Sprintf("- 安全配置：%s\n", securityStatusText(extras.Security)))
+	b.WriteString(fmt.Sprintf("- TLS 证书：%s\n\n", certStatusText(extras.Certs)))
 
 	focus := buildFocusItems(nodes, abnormalPods, quotaRisks, ws, storage, events, network)
+	focus = append(focus, buildExtrasFocusItems(extras)...)
 	if len(focus) > 0 {
 		b.WriteString("## ⚠️ 重点关注\n")
 		for i, it := range focus {
@@ -2093,6 +2143,10 @@ func buildReportMarkdown(now time.Time, comps componentsSummary, nodes nodeSumma
 		b.WriteString("\n")
 
 		actions := buildSuggestedActions(nodes, abnormalPods, quotaRisks, ws, storage, events, network)
+		actions = append(actions, buildExtrasActions(extras)...)
+		if len(actions) > 5 {
+			actions = actions[:5]
+		}
 		if len(actions) > 0 {
 			b.WriteString("## 💡 建议操作\n")
 			for i, it := range actions {
@@ -2391,6 +2445,8 @@ func buildReportMarkdown(now time.Time, comps componentsSummary, nodes nodeSumma
 	}
 	b.WriteString("\n")
 
+	writeExtrasSections(&b, extras, nodes)
+
 	if len(abnormalPods) > 0 {
 		b.WriteString("## 🧩 异常 Pod 明细（Top 15）\n")
 		for i := 0; i < len(abnormalPods) && i < 15; i++ {
@@ -2440,6 +2496,9 @@ func buildReportMarkdown(now time.Time, comps componentsSummary, nodes nodeSumma
 		}
 		if len(ws.Unhealthy) > 0 || ws.FailedJobs > 0 || ws.CronJobOverdue > 0 || ws.SuspendedCronJobs > 0 || events.Total > 0 || network.Services.LBPending > 0 || network.Ingress.PendingLB > 0 || storage.PVC.Pending > 0 || storage.PVC.Lost > 0 || (storage.HasPVAccess && storage.PV.Failed > 0) {
 			b.WriteString("- 存在工作负载/计划任务/事件/网络/存储风险，建议优先处理“重点关注”里的 Top 项，并结合事件与控制器日志定位。\n")
+		}
+		if extras.hasProblems() {
+			b.WriteString("- 存在证书/Endpoints/安全配置/残留资源等扩展巡检风险，建议按“重点关注”顺序逐项处理。\n")
 		}
 	}
 
